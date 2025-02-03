@@ -3,7 +3,6 @@ title: "TidyEducation"
 output:
  html_document:
    toc: true
-   theme: united
 ---
 
 ```{r setup, include=FALSE}
@@ -18,12 +17,13 @@ library(tidyverse)
 
 # Classifying data types
 
-As a first point of call, the dataset will be reduced to remove irrelevant columns.
+Before identifying the data types, the dataset will be reduced to remove irrelevant columns.
 
 ```{r}
-edu <- read.csv("./edu.csv")
-edu <- edu %>% select(
-  TypeOfEstablishment..code.,
+totaledu <- read.csv("./edu.csv")
+edu <- totaledu %>% select(
+  EstablishmentName,
+  EstablishmentTypeGroup..code.,
   Boarders..code.,
   NumberOfPupils,
   NumberOfBoys,
@@ -33,5 +33,33 @@ edu <- edu %>% select(
   Gender..code.,
   PercentageFSM
 )
+
 head(edu)
+```
+
+* **Nominal:** TypeOfEstablishment, Boarders, Town, Gender.
+  * These variables only support equality operators.
+* **Ratio:** NumberOfPupils, NumberOfBoys, NumberOfGirls, PercentageFSM
+  * These variables support all mathematical operations.
+
+# Exploratoration
+
+It is of interest to delineate the correlation between different predictors.
+I use the term 'predictors' hesitantly, as no hypothesis has currently been set.
+
+```{r}
+fsm <- edu %>% arrange(desc(PercentageFSM))
+
+head(fsm)
+```
+
+Some statistical summaries will also be included for ratio data types.
+
+```{r}
+summary <- edu %>% summarise(
+  meanpupils = mean(NumberOfPupils, na.rm = TRUE),
+  meanfsm = mean(PercentageFSM, na.rm = TRUE)
+)
+
+summary
 ```

@@ -2,7 +2,7 @@
 
 -------------------------------------------------------------------------
 
-TidyEducation is an R package that performs exploratory data analysis and visualisation on a UK education dataset using the `tidyverse` R package.
+TidyEducation is a repository that performs exploratory data analysis and visualisation on a UK education dataset using the `tidyverse` R package.
 
 - [More About TidyEducation](#more-about-tidyeducation)
 - [License](#license)
