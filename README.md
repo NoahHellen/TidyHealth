@@ -1,4 +1,4 @@
-![image](misc/imperial.png)
+![image](https://upload.wikimedia.org/wikipedia/commons/0/06/Imperial_College_London_new_logo.png)
 
 -------------------------------------------------------------------------
 
