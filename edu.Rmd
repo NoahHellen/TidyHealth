@@ -22,6 +22,16 @@ As a first point of call, the dataset will be reduced to remove irrelevant colum
 
 ```{r}
 edu <- read.csv("./edu.csv")
-edu <- edu %>% select(TypeOfEstablishment..code., Boarders..code., NumberOfPupils, NumberOfBoys, NumberOfGirls, PercentageFSM, Town, Gender..code., PercentageFSM)
+edu <- edu %>% select(
+  TypeOfEstablishment..code.,
+  Boarders..code.,
+  NumberOfPupils,
+  NumberOfBoys,
+  NumberOfGirls,
+  PercentageFSM,
+  Town,
+  Gender..code.,
+  PercentageFSM
+)
 head(edu)
 ```
