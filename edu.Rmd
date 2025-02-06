@@ -9,57 +9,233 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-# Load `tidyverse` package
+# Load packages
 
 ```{r}
 library(tidyverse)
+library(naniar)
 ```
 
-# Classifying data types
+# Exploration
 
-Before identifying the data types, the dataset will be reduced to remove irrelevant columns.
+### Load dataset
+
+First, let's load the dataset.
 
 ```{r}
-totaledu <- read.csv("./edu.csv")
-edu <- totaledu %>% select(
-  EstablishmentName,
-  EstablishmentTypeGroup..code.,
-  Boarders..code.,
-  NumberOfPupils,
-  NumberOfBoys,
-  NumberOfGirls,
-  PercentageFSM,
-  Town,
-  Gender..code.,
-  PercentageFSM
-)
+totaledu <- read.csv("data/edu.csv")
+```
 
+Next, let's select a subset of relevant variables.
+
+```{r}
+edu <- totaledu %>%
+  # Choose relevant variables.
+  select(
+    EstablishmentTypeGroup..code.,
+    EstablishmentStatus..code.,
+    Boarders..code.,
+    NumberOfPupils,
+    PercentageFSM,
+    Town,
+    Gender..code.,
+    PercentageFSM
+  ) %>%
+  # Remove empty entries.
+  filter(Town != "") %>%
+  # Remove encoding error.
+  filter(row_number() != 47968) %>%
+  # Normalise naming.
+  mutate(Town = tolower(Town))
+```
+
+Let's also remove `closed` schools.
+
+```{r}
+edu <- edu %>%
+  filter(
+    EstablishmentStatus..code. == 1
+  ) %>%
+  select(
+    -EstablishmentStatus..code.
+  )
+```
+
+Finally, let's create a code for the variable `Town`.
+
+```{r}
+town_code <- edu %>%
+  select(Town) %>%
+  unique() %>%
+  mutate(TownCode = row_number())
+```
+
+Let's now impute this code into the tibble.
+
+```{r}
+edu <- edu %>%
+  left_join(town_code, by = "Town") %>%
+  select(-Town)
+```
+
+### Data types
+
+Let's establish the data types of this dataset.
+
+```{r}
 head(edu)
 ```
 
-* **Nominal:** TypeOfEstablishment, Boarders, Town, Gender.
-  * These variables only support equality operators.
-* **Ratio:** NumberOfPupils, NumberOfBoys, NumberOfGirls, PercentageFSM
-  * These variables support all mathematical operations.
+* **Nominal**
+  * TypeOfEstablishment
+  * Boarders
+  * Town
+  * Gender
+* **Orindal**
+  * NA
+* **Interval**
+  * NA
+* **Ratio**
+  * NumberOfPupils
+  * PercentageFSM
 
-# Exploratoration
 
-It is of interest to delineate the correlation between different predictors.
-I use the term 'predictors' hesitantly, as no hypothesis has currently been set.
+# Data summaries and transforms
+
+*Statistical inference necessitates probabilistic assumptions.*
+
+We have made no such assumptions for ths dataset so far. However, it is still possible to analyse
+the empirical properties of a set of numerical values.
+
+### Empirical mean
+
+Without making probabilistic assumptions, it is possible to find a measure of the central value of a set of data.
+
+This can be computed by minimising the sum of squared deviates from $\mu$,
+
+\[
+  SSD(\mu) = \sum_{i=1}^n (x_i-\mu)^2.
+\]
+
+I will employ a brute force approach to the FSM values for local authority (state) schools,
+and iterate over an interval of candidate values.
 
 ```{r}
-fsm <- edu %>% arrange(desc(PercentageFSM))
-
-head(fsm)
+state_schools <- edu %>%
+  filter(
+    EstablishmentTypeGroup..code. == 4
+  ) %>%
+  drop_na(
+    PercentageFSM
+  ) %>%
+  select(
+    PercentageFSM
+  )
+ssd <- function(mu) {
+  sum((state_schools - mu)^2)
+}
+mu <- 15:30
+plot(mu, lapply(mu, ssd), "l")
 ```
 
-Some statistical summaries will also be included for ratio data types.
+It is clear from the plot that the centre of the data lies in the interval $[20,25]$.
+
+### Skewness
+
+Henceforth, the data is to be treated as an observed random sample.
+
+An estimate for skewness is given by
+
+\[
+  g_1 = \frac{m_3}{m_2^{3/2}}, \hspace{5pt} b_1 = (\frac{n-1}{n})^\frac{3}{2} \cdot g_1,
+\]
+
+where $m_p$ is the $p$-th order centralised sample moment $m_p = n^{-1} \sum_{i=1}^n(x_i - \bar{x})^p$
+and $b_1$ is Bessel's correction.
+
+I will apply this to find an estimate of the skewness of the FSM values for state schools.
 
 ```{r}
-summary <- edu %>% summarise(
-  meanpupils = mean(NumberOfPupils, na.rm = TRUE),
-  meanfsm = mean(PercentageFSM, na.rm = TRUE)
-)
+skew_estimate <- function(data, bessel = FALSE) {
+  mu1 <- mean(data)
+  mu3 <- mean((data - mu1)^3)
+  if (bessel) {
+    denom <- var(data)^(3 / 2)
+  } else {
+    denom <- ((length(data) - 1) * var(data) / length(data))^(3 / 2)
+  }
+  mu3 / denom
+}
 
-summary
+state_schools <- unlist(state_schools)
+
+b_1 <- skew_estimate(state_schools)
+
+hist(state_schools, 100)
 ```
+
+The histogram validates the positive skewness observed from the estimate `b_1`.
+
+# Data quality
+
+### Missing data
+
+Let's take a first glimpse at the quality of the dataset.
+
+```{r}
+summary(edu)
+```
+
+We can visualise the missing data results as well.
+
+```{r}
+vis_miss(edu)
+```
+
+We can also visualise the missing values across variables.
+
+```{r}
+gg_miss_upset(edu)
+```
+
+From the `summary` call, we identified which variables contained `NA` values.
+
+Let's analyse these missing values further with the `geom_miss_point` function.
+
+```{r}
+ggplot(
+  edu,
+  aes(x = NumberOfPupils, y = PercentageFSM)
+) +
+  geom_miss_point() +
+  facet_wrap(~EstablishmentTypeGroup..code.)
+```
+
+MCAR **does not** apply; the number of missing observations is not uniform across different categories.
+
+Let's validate this result by inspection.
+
+```{r}
+edu_na <- edu %>%
+  group_by(EstablishmentTypeGroup..code.) %>%
+  miss_var_summary() %>%
+  filter(variable == "PercentageFSM")
+```
+
+There is no pattern in missing values when categorised by `EstablishmentTypeGroup..code.`; this validates the conclusion above.
+
+A large proportion of missing values might suggest a poor quality dataset.
+
+```{r}
+gg_miss_case(edu)
+miss_case_summary(edu, order = FALSE)
+```
+
+A relatively large proportion of cases have more than one missing value.
+
+### Imputation
+
+Working with `NA` values is unavoidable.
+
+
+### Outliers
