@@ -12,11 +12,21 @@ knitr::opts_chunk$set(echo = TRUE)
 # Load packages
 
 ```{r}
-library(tidyverse)
 library(naniar)
+library(tidyverse)
 ```
 
+# Foreword
+
+Before proceeding, the **probabilistic** nature of the dataset must be addressed.
+
+$$\boxed{\textit{Statistical inference necessitates probabilistic assumptions}}$$
+
+In this dataset, each covariate can be assumed to follow a probability distribution.
+
 # Exploration
+
+In this section, we perform exploratory data analysis.
 
 ### Load dataset
 
@@ -41,7 +51,7 @@ edu <- totaledu %>%
     Gender..code.,
     PercentageFSM
   ) %>%
-  # Remove empty entries.
+  # Remove empty `Town` entries.
   filter(Town != "") %>%
   # Remove encoding error.
   filter(row_number() != 47968) %>%
@@ -67,7 +77,7 @@ Finally, let's create a code for the variable `Town`.
 town_code <- edu %>%
   select(Town) %>%
   unique() %>%
-  mutate(TownCode = row_number())
+  mutate(TownCode = row_number() - 1)
 ```
 
 Let's now impute this code into the tibble.
@@ -99,108 +109,47 @@ head(edu)
   * NumberOfPupils
   * PercentageFSM
 
-
-# Data summaries and transforms
-
-*Statistical inference necessitates probabilistic assumptions.*
-
-We have made no such assumptions for ths dataset so far. However, it is still possible to analyse
-the empirical properties of a set of numerical values.
-
-### Empirical mean
-
-Without making probabilistic assumptions, it is possible to find a measure of the central value of a set of data.
-
-This can be computed by minimising the sum of squared deviates from $\mu$,
-
-\[
-  SSD(\mu) = \sum_{i=1}^n (x_i-\mu)^2.
-\]
-
-I will employ a brute force approach to the FSM values for local authority (state) schools,
-and iterate over an interval of candidate values.
-
-```{r}
-state_schools <- edu %>%
-  filter(
-    EstablishmentTypeGroup..code. == 4
-  ) %>%
-  drop_na(
-    PercentageFSM
-  ) %>%
-  select(
-    PercentageFSM
-  )
-ssd <- function(mu) {
-  sum((state_schools - mu)^2)
-}
-mu <- 15:30
-plot(mu, lapply(mu, ssd), "l")
-```
-
-It is clear from the plot that the centre of the data lies in the interval $[20,25]$.
-
-### Skewness
-
-Henceforth, the data is to be treated as an observed random sample.
-
-An estimate for skewness is given by
-
-\[
-  g_1 = \frac{m_3}{m_2^{3/2}}, \hspace{5pt} b_1 = (\frac{n-1}{n})^\frac{3}{2} \cdot g_1,
-\]
-
-where $m_p$ is the $p$-th order centralised sample moment $m_p = n^{-1} \sum_{i=1}^n(x_i - \bar{x})^p$
-and $b_1$ is Bessel's correction.
-
-I will apply this to find an estimate of the skewness of the FSM values for state schools.
-
-```{r}
-skew_estimate <- function(data, bessel = FALSE) {
-  mu1 <- mean(data)
-  mu3 <- mean((data - mu1)^3)
-  if (bessel) {
-    denom <- var(data)^(3 / 2)
-  } else {
-    denom <- ((length(data) - 1) * var(data) / length(data))^(3 / 2)
-  }
-  mu3 / denom
-}
-
-state_schools <- unlist(state_schools)
-
-b_1 <- skew_estimate(state_schools)
-
-hist(state_schools, 100)
-```
-
-The histogram validates the positive skewness observed from the estimate `b_1`.
-
 # Data quality
+
+In this section, we will focus on missing and anomalous data.
 
 ### Missing data
 
-Let's take a first glimpse at the quality of the dataset.
+Let's first assess the proportion of missing data; a large proportion might suggest a poor quality dataset.
 
 ```{r}
-summary(edu)
+gg_miss_case(edu)
 ```
 
-We can visualise the missing data results as well.
+Given the dataset's size, these results imply only a small impact on its quality.
+
+### MCAR, MAR, MNAR
+
+Let's identify the types of missingness present in the data.
+
+There are formal definitions for missingness \(1).
+
+- **MCAR**
+    - $P(M|D) = P(M)$
+- **MAR**
+    - $P(M|D) = P(M|D_{obs})$
+- **MNAR**
+    - $P(M|D) = P(M|D)$
+
+There are also informal methods for diagnosing missingness.
+
+- Little's MCAR test
+- Diagnostic plots
+
+Let's first use Little's MCAR test.
 
 ```{r}
-vis_miss(edu)
+mcar_test(edu)
 ```
 
-We can also visualise the missing values across variables.
+The $p$-value $0 < 0.05$ suggests the data is **not** MCAR.
 
-```{r}
-gg_miss_upset(edu)
-```
-
-From the `summary` call, we identified which variables contained `NA` values.
-
-Let's analyse these missing values further with the `geom_miss_point` function.
+We can now use some diagnostic plots to help visualise the missingness.
 
 ```{r}
 ggplot(
@@ -211,31 +160,151 @@ ggplot(
   facet_wrap(~EstablishmentTypeGroup..code.)
 ```
 
-MCAR **does not** apply; the number of missing observations is not uniform across different categories.
-
-Let's validate this result by inspection.
+In the following, we regress covariates with missingness present in `PercentageFSM` and `NumberOfPupils` to see if there is a relationship.
 
 ```{r}
-edu_na <- edu %>%
-  group_by(EstablishmentTypeGroup..code.) %>%
-  miss_var_summary() %>%
-  filter(variable == "PercentageFSM")
+missing_fsm <- edu$PercentageFSM
+missing_fsm <- ifelse(is.na(missing_fsm), 1, 0)
+data_matrix <- edu %>%
+  select(-PercentageFSM) %>%
+  select(-NumberOfPupils) %>%
+  as.matrix()
+p_vals <- rep(NA, ncol(data_matrix))
+for (j in 1:ncol(data_matrix)) {
+  s <- summary(glm(missing_fsm ~ data_matrix[, j]),
+    family = binomial
+  )
+  p_vals[j] <- s$coefficients[2, 4]
+}
+
+p_vals
 ```
-
-There is no pattern in missing values when categorised by `EstablishmentTypeGroup..code.`; this validates the conclusion above.
-
-A large proportion of missing values might suggest a poor quality dataset.
 
 ```{r}
-gg_miss_case(edu)
-miss_case_summary(edu, order = FALSE)
+missing_pupils <- edu$NumberOfPupils
+missing_pupils <- ifelse(is.na(missing_pupils), 1, 0)
+data_matrix <- edu %>%
+  select(-NumberOfPupils) %>%
+  select(-PercentageFSM) %>%
+  as.matrix()
+p_vals <- rep(NA, ncol(data_matrix))
+for (j in 1:ncol(data_matrix)) {
+  s <- summary(glm(missing_pupils ~ data_matrix[, j]),
+    family = binomial
+  )
+  p_vals[j] <- s$coefficients[2, 4]
+}
+
+p_vals
 ```
 
-A relatively large proportion of cases have more than one missing value.
+The `p_vals` are significant in both cases, which suggests the data is MAR.
 
-### Imputation
+### Handling missing data
 
-Working with `NA` values is unavoidable.
+The method of handling missing data depends on the type of missingness.
 
+We have established the data is likely to be MAR, therefore the method of **multiple imputation** can be used.
 
 ### Outliers
+
+# Statistical inference
+
+In this section, we explore the statistical properties of the dataset.
+
+In [Central tendency](#central-tendency) and [Spread](#spread), we will derive the empirical **mean** and **variance** of `PercentageFSM` without making use of any probabilistic assumptions.
+
+That is, we will explore the central tendency and spread of `PercentageFSM`.
+
+In [Skewness](#skewness) we make use of the **probabilistic** nature of the covariates.
+
+### Central tendency
+
+To find the central tendency of `PercentageFSM`, we denote $\mu$ as the central value and minimise
+
+\[
+  SSD(\mu) = \sum_{i=1}^n (x_i-\mu)^2,
+\]
+
+where $SSD$ is the *sum of squared deviations from $\mu$*.
+
+```{r}
+schools_fsm <- edu$PercentageFSM %>%
+  na.omit() %>%
+  as.vector()
+
+is.vector(schools_fsm)
+
+ssd <- function(mu) {
+  sum((schools_fsm - mu)^2)
+}
+mu <- 20:35
+plot(mu,
+  lapply(mu, ssd),
+  "l",
+  main = "Central tendency measure",
+  xlab = "Central tendency",
+  ylab = "SSD"
+)
+```
+
+It is clear from the plot that the centre of the data lies in the interval $[25,30]$.
+
+*Note that missing values were simply dropped. This will be addressed in [Data quality](#data-quality).*
+
+### Spread
+
+To find spread, we simply compute the empirical variance
+
+\[
+  var(x_1, \cdots, x_n) = \frac{1}{n} \sum_{i=1}^n (x_i - \mu)^2.
+\]
+
+```{r}
+variance <- function(mu) {
+  1 / length(schools_fsm) * sum((schools_fsm - mu)^2)
+}
+
+cat("The spread of `schools_fsm` is", variance(25.53))
+```
+
+
+### Skewness
+
+An estimate for skewness is given by
+
+\[
+  g_1 = \frac{m_3}{m_2^{3/2}}, \hspace{5pt} b_1 = (\frac{n-1}{n})^\frac{3}{2} \cdot g_1,
+\]
+
+where $m_p$ is the $p$-th order centralised sample moment $m_p = n^{-1} \sum_{i=1}^n(x_i - \bar{x})^p$
+and $b_1$ is Bessel's correction.
+
+Let's apply this to `PercentageFSM`.
+
+```{r}
+skew_estimate <- function(data, bessel = FALSE) {
+  mu1 <- mean(data)
+  mu3 <- mean((data - mu1)^3)
+  if (bessel) {
+    denom <- variance(25.53)^(3 / 2)
+  } else {
+    denom <- ((length(data) - 1) * variance(25.53) / length(data))^(3 / 2)
+  }
+  mu3 / denom
+}
+
+b_1 <- skew_estimate(schools_fsm)
+
+cat("The skewness of the data is", b_1)
+
+hist(schools_fsm, 100)
+```
+
+The histogram validates the positive skewness observed from the estimate `b_1`.
+
+# References
+
+[1] King G, Honaker J, Joseph A, Scheve K. Analyzing Incomplete Political Science
+Data: An Alternative Algorithm for Multiple Imputation. American Political
+Science Review. 2001;95(1):49–69. pages 4
